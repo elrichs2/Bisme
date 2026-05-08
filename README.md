@@ -1,100 +1,137 @@
 # Bisme — Dalamud Plugin
 
-Exporte ton **gear équipé + materia + job** en JSON compatible avec
-[xivgear.app](https://xivgear.app/) et avec l'app **FFXIV Meld Optimizer**
-(`ffxiv_meld_optimizer.html`).
+**Optimiseur de melds in-game pour FFXIV.** Choisis un job, charge ton stuff équipé,
+clique sur Auto-Optimize : le plugin pick la meilleure food et place les materia
+pour matcher la cible BiS, en respectant le cap par pièce.
 
-Plugin Dalamud read-only : il lit la mémoire du jeu via `InventoryManager`
-et n'envoie **aucun packet**, ne modifie **rien**.
+Plugin Dalamud read-only (catégorie la plus sûre) : il lit la mémoire du jeu via
+`InventoryManager`, n'envoie aucun packet, ne modifie rien dans le jeu.
+
+![Patch 7.4 — Heavyweight Savage / i790 BiS data embedded](https://img.shields.io/badge/patch-7.4-orange) ![DalamudApiLevel 15](https://img.shields.io/badge/api-15-blue)
 
 ---
 
-## Installation rapide (utilisateur final)
+## Features
 
-1. Dans le jeu, ouvre `/xlsettings`
+- **UI ImGui complète** in-game : sélecteurs job + food + 11 slots de gear avec materia, panneau de stats vs BiS target avec deltas colorés
+- **21 jobs** supportés (tanks/heals/melee/ranged/casters), data BiS i790 embed
+- **Auto-Optimize** : pick la meilleure food + place les materia en 4 tiers de scoring (no overcap > overcap partiel > overshoot > capped)
+- **Cap par pièce** respecté : `ItemLevel.SubStatCap × ratio_slot`, vrais grades XII/XI selon slot (base + 1er overmeld = XII, slots avancés = XI)
+- **Auto-detect changement de job** : switch de class in-game = sync auto de l'optimizer + reload du gear équipé
+- **Send to BisBuddy** : export en un clic vers BisBuddy pour highlighting des items à farmer (avec HQ flag respecté)
+- **Charge le gear équipé** : lit ton inventaire courant via `InventoryManager` (items + materia + grades)
+
+---
+
+## Installation
+
+1. In-game, tape `/xlsettings`
 2. Onglet **Experimental** → **Custom Plugin Repositories**
 3. Ajoute l'URL : `https://raw.githubusercontent.com/elrichs2/Bisme/main/pluginmaster.json`
-4. Coche **Enabled** puis clique **Save and Close**
-5. `/xlplugins` → Onglet **All Plugins** → recherche **Bisme** → **Install**
-6. In-game : `/bisme clipboard` → ouvre l'app HTML → **Importer un gearset** → **Coller** → ✓
+4. Coche **Enabled** → **Save and Close**
+5. `/xlplugins` → **All Plugins** → cherche **Bisme** → **Install**
 
 ---
 
 ## Utilisation
 
+### Slash commands
+
 ```
-/bisme            → imprime le JSON dans le chat
-/bisme file       → sauvegarde dans Documents/Bisme.json
-/bisme clipboard  → copie dans le presse-papier (recommandé)
+/bisme            → toggle la fenêtre Bisme
+/bisme load       → ouvre + charge le gear équipé
+/bisme optimize   → ouvre + charge équipé + auto-optimize en un coup
 ```
+
+### Workflow type
+
+1. `/bisme load` → la fenêtre s'ouvre avec ton job courant + ton stuff équipé pré-chargé
+2. Clic **Auto-Optimize Materia** → l'optimizer pick la food et place les melds optimaux
+3. Vérifie le panneau **Stats vs BiS Target** (deltas verts ≤ ±27 = OK)
+4. Clic **Send to BisBuddy** → le JSON est dans ton presse-papier
+5. `/bisbuddy` → **Add Gearset** → **JSON** → **Ctrl+V** → Import
+6. BisBuddy highlight maintenant les items à farmer dans loot/shops/marketboard/melding
+
+### Switch de job in-game
+
+Aucune action requise. Quand tu changes de class, le plugin sync l'optimizer
+sur le nouveau job et recharge ton gear équipé en arrière-plan (~0.15s de délai
+le temps que l'inventaire se settle).
 
 ---
 
-## Setup repo (si tu fork ou crées le tien)
+## Pour les développeurs (fork ou self-host)
 
-### 1. Push sur GitHub
+### Setup repo
 
 ```bash
 cd Bisme/
 git init
 git add .
 git commit -m "Initial commit"
-git remote add origin https://github.com/YOUR_USERNAME/Bisme.git
+git remote add origin https://github.com/<ton-username>/Bisme.git
 git push -u origin main
 ```
 
-### 2. Replace les placeholders
+Remplace `elrichs2` par ton username dans `pluginmaster.json` (les `RepoUrl`,
+`IconUrl`, `DownloadLink*`).
 
-Dans `pluginmaster.json`, remplace `elrichs2` par ton username GitHub :
+### Bump version : `bump.ps1`
 
-```json
-"RepoUrl": "https://github.com/ton-username/Bisme",
-"DownloadLinkInstall": "https://github.com/ton-username/Bisme/releases/latest/download/latest.zip",
-...
+Script PowerShell (compatible PS 5.1+ Windows par défaut) qui synchronise la
+version dans les 3 fichiers en une commande :
+
+```powershell
+.\bump.ps1                       # auto-bump patch  (1.4.0.0 -> 1.4.1.0)
+.\bump.ps1 -Patch                # idem
+.\bump.ps1 -Minor                # bump minor       (1.4.0.0 -> 1.5.0.0)
+.\bump.ps1 -Major                # bump major       (1.4.0.0 -> 2.0.0.0)
+.\bump.ps1 -Version 1.10.0.0     # version explicite
+.\bump.ps1 -Minor -Changelog "Description des changements"
 ```
 
-### 3. GitHub Actions auto-build
+Le script met à jour `Bisme.csproj`, `Bisme.json` et `pluginmaster.json` avec
+la même version, le timestamp `LastUpdate`, et optionnellement le changelog.
 
-Le workflow `.github/workflows/build.yml` est déjà inclus. À chaque push sur `main` :
-- Installe .NET 10
-- Download Dalamud distrib (latest)
-- Build le DLL avec `DALAMUD_HOME` correctement configuré
-- Package en `latest.zip`
-- Update `pluginmaster.json` avec le timestamp
-- Push une release `latest` avec le ZIP attaché
+Convention de versioning :
 
-Pour déclencher : push sur `main`, ou crée un tag `v1.0.0`, ou clic manuel
-sur **Actions → Build & Release → Run workflow**.
+| Niveau | Quand bump | Exemple |
+|---|---|---|
+| **Major** | Breaking change, rewrite | 1.x → 2.0.0.0 |
+| **Minor** | Nouvelle feature visible | 1.4.0.0 → 1.5.0.0 |
+| **Patch** | Bug fix, tweak interne | 1.4.0.0 → 1.4.1.0 |
+| **Build** | Réservé (toujours 0) | — |
 
-### 4. URL pluginmaster pour Dalamud
+### Workflow type pour publier une mise à jour
 
-Une fois la release créée, ton URL pluginmaster pour Dalamud sera :
+```powershell
+# 1. Modifie le code
+# 2. Bump
+.\bump.ps1 -Minor -Changelog "Ajout de la feature X"
+# 3. Push
+git add .
+git commit -m "v1.5.0"
+git push
 ```
-https://raw.githubusercontent.com/ton-username/Bisme/main/pluginmaster.json
-```
 
----
+GitHub Actions s'occupe du reste : build → package `latest.zip` → release.
+Aucun commit-back, aucun conflit.
 
-## Build local (optionnel)
-
-Si tu veux build à la main au lieu de passer par GitHub Actions :
+### Build local (optionnel)
 
 ```bash
-# Pré-requis: .NET 10 SDK + Dalamud installé via XIVLauncher
-
-# Sur Windows (Dalamud auto-détecté)
+# Pré-requis : .NET 10 SDK + Dalamud (auto-détecté sur Windows si Dalamud installé)
 dotnet build -c Release
 
-# Sur Linux/Mac avec DALAMUD_HOME explicite
+# Linux/Mac : pointer vers Dalamud distrib explicitement
 export DALAMUD_HOME=/path/to/dalamud-distrib
 dotnet build -c Release
 ```
 
-Output : `bin/Release/Bisme/Bisme.dll`
-
-Pour test en mode dev :
-- Copie le contenu de `bin/Release/` dans `%APPDATA%\XIVLauncher\devPlugins\Bisme\`
-- `/xlplugins` → Onglet **Dev Tools** → Bisme → Enable
+Pour tester en mode dev sans passer par la release :
+- Copie `bin/Release/Bisme.dll` + `Bisme.json` + `Bisme.deps.json` dans
+  `%APPDATA%\XIVLauncher\devPlugins\Bisme\`
+- `/xlplugins` → onglet **Dev Tools** → Bisme → Enable
 
 ---
 
@@ -102,57 +139,70 @@ Pour test en mode dev :
 
 ```
 Bisme/
-├── .github/workflows/build.yml   ← GitHub Action auto-build + release
-├── Plugin.cs                     ← Code C# principal
-├── Bisme.csproj           ← Project file (.NET 10, Dalamud SDK 15)
-├── Bisme.json             ← Manifest plugin (interne)
-├── pluginmaster.json             ← Index repo Dalamud (template)
+├── .github/workflows/build.yml   ← Auto-build + release sur push
+├── Plugin.cs                     ← Entry point + slash commands + lecture gear équipé
+├── BisData.cs                    ← Loader du dataset embed (BiS targets, items, foods)
+├── Optimizer.cs                  ← Logique d'optimisation (4-tier scoring, cap-aware)
+├── MainWindow.cs                 ← UI ImGui complète
+├── BisBuddyExport.cs             ← Sérialiseur vers le format JSON BisBuddy (HQ-aware)
+├── Bisme.csproj                  ← Project file (.NET 10, Dalamud SDK 15)
+├── Bisme.json                    ← Manifest plugin (interne, version sync via bump.ps1)
+├── pluginmaster.json             ← Index repo Dalamud (URL d'install)
+├── data.json                     ← Dataset embedded (BiS i790 + 1673 items + foods + caps)
+├── bump.ps1                      ← Script de bump version
 ├── global.json                   ← Pin .NET SDK 10.0.x
-├── latest.zip                    ← Build artifact (recréé par CI)
-└── README.md
+└── latest.zip                    ← Build artifact (recréé par CI, .gitignore-ignored)
 ```
 
 ---
 
-## Format de sortie
+## Format JSON de l'export BisBuddy
+
+Le bouton **Send to BisBuddy** sérialise le state Bisme dans le format JSON
+attendu par le `JsonSource` de BisBuddy (rétro-engineering du `GearsetConverter`) :
 
 ```json
 {
-  "name": "MyChar — SAM Live Export",
-  "job": "SAM",
-  "level": 100,
-  "items": {
-    "Weapon": { "id": 49671, "materia": [
-      {"id": 41773, "locked": false},
-      {"id": 41773, "locked": false}
-    ]},
-    "Head": { "id": 49690, "materia": [...] },
-    ...
-  },
-  "food": 0,
-  "timestamp": 1746615600000
+  "Id": "<guid>",
+  "Name": "Bisme — SAM 2026-05-08 12:00",
+  "SourceType": 2,
+  "ClassJobId": 34,
+  "IsActive": true,
+  "Priority": 0,
+  "ImportDate": "2026-05-08T12:00:00Z",
+  "Gearpieces": [
+    {
+      "ItemId": 49671,
+      "IsCollected": false,
+      "CollectLock": false,
+      "ItemMateria": [
+        {"ItemId": 41773, "IsCollected": false, "CollectLock": false},
+        {"ItemId": 41773, "IsCollected": false, "CollectLock": false}
+      ],
+      "PrerequisiteTree": null
+    }
+  ]
 }
 ```
 
-Compatible avec :
-- L'import Xivgear (`xivgear.app/?page=importsheet`)
-- Le bouton **↙ Importer un gearset** de `ffxiv_meld_optimizer.html`
+Les items HQ-able (gear craft) ont leur `ItemId + 1_000_000` selon la convention
+BisBuddy. Les items savage / tome (NQ-only) restent à l'ID brut.
 
 ---
 
-## Limitations
+## Limitations connues
 
-- **Pas de food** exporté : Dalamud n'expose pas l'effet actif de manière stable.
-  Choisis ton food directement dans l'app après import.
-- Si l'API Dalamud évolue (`IClientState.LocalPlayer`, `Lumina.Excel.Sheets`...),
-  ajuste les imports — le plugin est compatible Dalamud SDK 15.
-- Slot Waist (idx 5) toujours vide depuis Shadowbringers, conservé par robustesse.
+- **Food active non lue** : Dalamud n'expose pas l'effet food courant de
+  manière stable. Tu choisis la food directement dans l'UI Bisme.
+- **Slot Waist** (index 5) : retiré depuis Shadowbringers, le mapping le saute.
+- **Pas de support PLD shield offhand** : le slot OffHand n'est pas modélisé
+  (PLD weapon = épée + bouclier comme un seul item dans l'optimizer).
 
 ---
 
 ## Risque ban
 
-Plugin **read-only** : lit uniquement la mémoire du jeu (équivalent à regarder ton
-inventaire). Pas de packets envoyés, pas d'automation, pas d'interaction PVP.
-C'est la catégorie la plus sûre dans l'écosystème Dalamud — aucune vague de bans
-n'a jamais été observée pour ce type de plugin.
+Plugin **read-only** : lit uniquement la mémoire du jeu (équivalent à regarder
+ton inventaire). Aucun packet envoyé, aucune automation, aucune interaction
+PVP. C'est la catégorie la plus sûre dans l'écosystème Dalamud. Aucune vague
+de bans n'a jamais été observée sur ce profil de plugin.
