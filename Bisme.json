@@ -2,9 +2,9 @@
   "Author": "You",
   "Name": "Bisme",
   "Punchline": "In-game meld optimizer with BisBuddy export and overcap awareness.",
-  "Description": "FFXIV in-game meld optimizer. Pick a job, load your equipped gear, click Auto-Optimize: the plugin picks the best food and places materia to match the BiS target while respecting per-piece stat caps. Auto-detects job changes, preloads equipped gear, and exports to BisBuddy in one click — with proper HQ flag handling.",
+  "Description": "FFXIV in-game meld optimizer. Pick a job, load your equipped gear, click Auto-Optimize: the plugin picks the best food and places materia to match the BiS target while respecting per-piece stat caps. Auto-detects job changes, preloads equipped gear, and exports to BisBuddy in one click ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â with proper HQ flag handling.",
   "InternalName": "Bisme",
-  "AssemblyVersion": "1.4.0.0",
+  "AssemblyVersion": "1.11.0.0",
   "RepoUrl": "https://github.com/elrichs2/Bisme",
   "Tags": ["gear","meld","materia","optimizer","bis","bisbuddy"]
 }
