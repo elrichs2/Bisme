@@ -15,7 +15,7 @@ public class MainWindow : Window, IDisposable
     private readonly string[] _jobLabels;
     private readonly string[] _foodLabels;
 
-    public MainWindow(BisData data) : base("Bisme — FFXIV Meld Optimizer", ImGuiWindowFlags.None)
+    public MainWindow(BisData data) : base("Bisme - FFXIV Meld Optimizer", ImGuiWindowFlags.None)
     {
         _data = data;
         _state = Optimizer.State.Empty();
@@ -28,7 +28,7 @@ public class MainWindow : Window, IDisposable
         };
 
         _jobLabels = _data.Jobs.ToArray();
-        _foodLabels = new[] { "— None —" }.Concat(_data.Foods.Select(f =>
+        _foodLabels = new[] { "-- None --" }.Concat(_data.Foods.Select(f =>
         {
             var stats = string.Join(", ", f.Bonuses.Select(b =>
             {
@@ -227,7 +227,7 @@ public class MainWindow : Window, IDisposable
     {
         var g = _state.Gear[slot];
         var items = _data.ItemsForJobSlot(_state.Job, slot).ToList();
-        var currentLabel = "— Choose item —";
+        var currentLabel = "-- Choose item --";
         if (g.ItemId.HasValue)
         {
             var it = _data.GetItem(g.ItemId.Value);
@@ -237,7 +237,7 @@ public class MainWindow : Window, IDisposable
         ImGui.SetNextItemWidth(-1);
         if (ImGui.BeginCombo($"##item_{slot}", currentLabel))
         {
-            if (ImGui.Selectable("— Choose item —", !g.ItemId.HasValue))
+            if (ImGui.Selectable("-- Choose item --", !g.ItemId.HasValue))
             {
                 g.ItemId = null;
                 g.Materia.Clear();
@@ -261,7 +261,7 @@ public class MainWindow : Window, IDisposable
         var g = _state.Gear[slot];
         var grade = _data.GetSlotGrade(item, idx);
         var current = g.Materia[idx];
-        var label = current == null ? "— empty —" : $"{Optimizer.StatNames[current]} +{_data.GetGradeValue(grade, current)}";
+        var label = current == null ? "-- empty --" : $"{Optimizer.StatNames[current]} +{_data.GetGradeValue(grade, current)}";
 
         var isAdv = idx >= item.MSlots;
         if (isAdv) ImGui.PushStyleColor(ImGuiCol.FrameBg, new Vector4(0.32f, 0.18f, 0.38f, 1f));
@@ -269,7 +269,7 @@ public class MainWindow : Window, IDisposable
         ImGui.SetNextItemWidth(-1);
         if (ImGui.BeginCombo($"##m_{slot}_{idx}", label))
         {
-            if (ImGui.Selectable("— empty —", current == null))
+            if (ImGui.Selectable("-- empty --", current == null))
                 g.Materia[idx] = null;
             foreach (var stat in Optimizer.Stats)
             {

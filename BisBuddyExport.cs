@@ -67,7 +67,7 @@ public static class BisBuddyExport
         var gearset = new
         {
             Id = Guid.NewGuid().ToString(),
-            Name = $"Bisme — {state.Job} {DateTime.Now:yyyy-MM-dd HH:mm}",
+            Name = $"Bisme - {state.Job} {DateTime.Now:yyyy-MM-dd HH:mm}",
             SourceType = 2, // 2 = Json
             ClassJobId = classJobId,
             IsActive = true,
