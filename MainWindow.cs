@@ -173,7 +173,10 @@ public class MainWindow : Window, IDisposable
             relevant.Select(s => $"{Optimizer.StatNames[s]}: {target[s]}"));
 
         int filled = 0, totalSlots = 0;
-        foreach (var slot in Optimizer.Slots)
+        // Iterate only the slots that apply to the current job; this excludes
+        // OffHand for non-shield jobs and prevents counting an empty shield slot
+        // in the materia-fill ratio.
+        foreach (var slot in Optimizer.SlotsForJob(_state.Job))
         {
             var g = _state.Gear.GetValueOrDefault(slot);
             if (g?.ItemId == null) continue;
@@ -201,11 +204,13 @@ public class MainWindow : Window, IDisposable
         for (int i = 0; i < 5; i++)
             ImGui.TableSetupColumn($"M{i + 1}", ImGuiTableColumnFlags.WidthStretch, 1f);
 
-        foreach (var slot in Optimizer.Slots)
+        // Render only slots relevant to the current job. Shields (OffHand) appear
+        // for PLD; for everyone else the row is hidden entirely.
+        foreach (var slot in Optimizer.SlotsForJob(_state.Job))
         {
             ImGui.TableNextRow();
             ImGui.TableNextColumn();
-            ImGui.Text(slot.Replace("Left", "L").Replace("Right", "R"));
+            ImGui.Text(SlotLabel(slot));
 
             ImGui.TableNextColumn();
             DrawItemCombo(slot);
@@ -213,6 +218,8 @@ public class MainWindow : Window, IDisposable
             var g = _state.Gear[slot];
             BisItem? it = g.ItemId.HasValue ? _data.GetItem(g.ItemId.Value) : null;
 
+            // Materia columns. Shields have MSlots=0 so g.Materia.Count is 0 and
+            // every cell stays empty -- visually a clean blank row past the picker.
             for (int i = 0; i < 5; i++)
             {
                 ImGui.TableNextColumn();
@@ -222,6 +229,14 @@ public class MainWindow : Window, IDisposable
         }
         ImGui.EndTable();
     }
+
+    private static string SlotLabel(string slot) => slot switch
+    {
+        "OffHand"   => "Shield",
+        "RingLeft"  => "RingL",
+        "RingRight" => "RingR",
+        _           => slot,
+    };
 
     private void DrawItemCombo(string slot)
     {
@@ -327,6 +342,8 @@ public class MainWindow : Window, IDisposable
 
     private void ResetGear()
     {
+        // Reset every possible slot, including OffHand even for jobs that won't
+        // render it -- keeps the Gear dict shape stable across job switches.
         foreach (var slot in Optimizer.Slots)
             _state.Gear[slot] = new Optimizer.GearSlot();
     }

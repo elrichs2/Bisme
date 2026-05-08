@@ -154,21 +154,24 @@ public sealed class Plugin : IDalamudPlugin
         foreach (var slot in Optimizer.Slots)
             state.Gear[slot] = new Optimizer.GearSlot();
 
+        // FFXIV equipped-items container layout:
+        //  0: MainHand   1: OffHand   2: Head   3: Body   4: Hand   5: (waist, unused)
+        //  6: Legs   7: Feet   8: Ears   9: Neck   10: Wrist   11: RingL   12: RingR
         string?[] mapping =
         {
-            "Weapon",     // 0
-            null,         // 1 offhand
-            "Head",       // 2
-            "Body",       // 3
-            "Hand",       // 4
-            null,         // 5 waist
-            "Legs",       // 6
-            "Feet",       // 7
-            "Ears",       // 8
-            "Neck",       // 9
-            "Wrist",      // 10
-            "RingLeft",   // 11
-            "RingRight"   // 12
+            "Weapon",
+            "OffHand",
+            "Head",
+            "Body",
+            "Hand",
+            null,
+            "Legs",
+            "Feet",
+            "Ears",
+            "Neck",
+            "Wrist",
+            "RingLeft",
+            "RingRight"
         };
 
         for (var i = 0; i < equipped->Size; i++)
@@ -186,6 +189,7 @@ public sealed class Plugin : IDalamudPlugin
             if (item == null) continue;
 
             var gs = new Optimizer.GearSlot { ItemId = itemId };
+            // Shields have MSlots=0 and Adv=false -> sc=0, no materia loop runs.
             var sc = item.Adv ? 5 : item.MSlots;
             gs.Materia = Enumerable.Repeat<string?>(null, sc).ToList();
 

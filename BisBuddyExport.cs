@@ -26,7 +26,9 @@ public static class BisBuddyExport
         var classJobId = JobToClassJobId.GetValueOrDefault(state.Job, 0u);
 
         var gearpieces = new List<object>();
-        foreach (var slotKey in Optimizer.Slots)
+        // SlotsForJob filters out OffHand for non-shield jobs. Shields export
+        // with an empty ItemMateria list since they have no meld slots.
+        foreach (var slotKey in Optimizer.SlotsForJob(state.Job))
         {
             var g = state.Gear.GetValueOrDefault(slotKey);
             if (g?.ItemId == null) continue;
@@ -51,7 +53,9 @@ public static class BisBuddyExport
             }
 
             // BisBuddy expects HQ id (RowId + 1_000_000) for HQ-able items.
-            // Savage/tome gear is NQ-only; crafted gear is HQ-able.
+            // Savage/tome gear is NQ-only; crafted gear is HQ-able. Shields:
+            // most are NQ-only, a few crafted ones are HQ-able -- the item.Hq
+            // flag from data.json drives this either way.
             var exportedItemId = (uint)g.ItemId.Value + (item.Hq ? HqOffset : 0u);
 
             gearpieces.Add(new

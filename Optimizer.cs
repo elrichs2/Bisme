@@ -6,11 +6,19 @@ namespace Bisme;
 
 public static class Optimizer
 {
+    // All possible slots. OffHand is opt-in per-job (see JobsWithOffHand).
     public static readonly string[] Slots =
     {
-        "Weapon","Head","Body","Hand","Legs","Feet",
+        "Weapon","OffHand","Head","Body","Hand","Legs","Feet",
         "Ears","Neck","Wrist","RingLeft","RingRight"
     };
+
+    // Jobs that equip an off-hand piece. PLD is the only endgame case;
+    // extend this set if SE ever brings another shield-using job back.
+    public static readonly HashSet<string> JobsWithOffHand = new() { "PLD" };
+
+    public static IEnumerable<string> SlotsForJob(string job) =>
+        Slots.Where(s => s != "OffHand" || JobsWithOffHand.Contains(job));
 
     public static readonly string[] Stats =
     {
@@ -50,6 +58,7 @@ public static class Optimizer
         public static State Empty()
         {
             var s = new State();
+            // Pre-populate ALL slots; UI / optimizer ignore OffHand for jobs without it.
             foreach (var slot in Slots) s.Gear[slot] = new GearSlot();
             return s;
         }
@@ -85,7 +94,7 @@ public static class Optimizer
     {
         var totals = Stats.ToDictionary(s => s, _ => 0);
 
-        foreach (var slot in Slots)
+        foreach (var slot in SlotsForJob(state.Job))
         {
             var g = state.Gear.GetValueOrDefault(slot);
             if (g?.ItemId == null) continue;
@@ -95,6 +104,7 @@ public static class Optimizer
             var cap = data.GetStatCap(it);
             var piece = Stats.ToDictionary(s => s, s => it.Stats.GetValueOrDefault(s, 0));
 
+            // Shields have mSlots=0 -> Materia list is empty -> this loop is a no-op.
             for (var i = 0; i < g.Materia.Count; i++)
             {
                 var stat = g.Materia[i];
@@ -128,7 +138,7 @@ public static class Optimizer
 
         // Gear-only stats
         var gearOnly = Stats.ToDictionary(s => s, _ => 0);
-        foreach (var slot in Slots)
+        foreach (var slot in SlotsForJob(state.Job))
         {
             var g = state.Gear.GetValueOrDefault(slot);
             if (g?.ItemId == null) continue;
@@ -165,7 +175,7 @@ public static class Optimizer
         var pieceStat = new Dictionary<string, Dictionary<string, int>>();
         var allSlots = new List<(string Slot, int Idx, BisItem Item, string Grade)>();
 
-        foreach (var slot in Slots)
+        foreach (var slot in SlotsForJob(state.Job))
         {
             var g = state.Gear.GetValueOrDefault(slot);
             if (g?.ItemId == null) continue;
@@ -173,6 +183,7 @@ public static class Optimizer
             if (it == null) continue;
             pieceStat[slot] = Stats.ToDictionary(s => s, s => it.Stats.GetValueOrDefault(s, 0));
 
+            // Shields: MSlots=0 and Adv=false -> sc=0, no melds added to allSlots.
             var sc = it.Adv ? 5 : it.MSlots;
             g.Materia = Enumerable.Repeat<string?>(null, sc).ToList();
             for (var i = 0; i < sc; i++)
@@ -233,7 +244,7 @@ public static class Optimizer
 
     public static void LoadBisGear(BisData data, State state)
     {
-        foreach (var slot in Slots)
+        foreach (var slot in SlotsForJob(state.Job))
         {
             var first = data.ItemsForJobSlot(state.Job, slot).FirstOrDefault();
             if (first != null)
