@@ -1,0 +1,20 @@
+<Project Sdk="Dalamud.NET.Sdk/15.0.0">
+
+  <PropertyGroup>
+    <Version>1.0.0.0</Version>
+    <Description>Exports your equipped gear + materia as JSON compatible with xivgear.app and FFXIV Meld Optimizer.</Description>
+    <PackageProjectUrl>https://github.com/elrichs2/Bisme</PackageProjectUrl>
+    <Authors>You</Authors>
+    <Company></Company>
+    <RootNamespace>Bisme</RootNamespace>
+    <AssemblyName>Bisme</AssemblyName>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="Bisme.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

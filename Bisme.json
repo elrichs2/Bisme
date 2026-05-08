@@ -1,0 +1,10 @@
+{
+  "Author": "You",
+  "Name": "Bisme",
+  "Punchline": "Export your equipped gear + materia as JSON for xivgear / Bis Meld Optimizer.",
+  "Description": "Exports your currently equipped gear with all materia and the active class job. Output is compatible with xivgear.app's import format and the FFXIV Bis Meld Optimizer HTML app. Use /bisme to print to chat, save to file, or copy to clipboard.",
+  "InternalName": "Bisme",
+  "AssemblyVersion": "1.0.0.0",
+  "RepoUrl": "https://github.com/elrichs2/Bisme",
+  "Tags": ["gear", "export", "xivgear", "meld", "materia"]
+}
