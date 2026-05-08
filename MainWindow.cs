@@ -12,10 +12,8 @@ public class MainWindow : Window, IDisposable
     private readonly BisData _data;
     private Optimizer.State _state;
 
-    // Cached UI strings
     private readonly string[] _jobLabels;
     private readonly string[] _foodLabels;
-    private readonly string[] _statLabels;
 
     public MainWindow(BisData data) : base("Bisme — FFXIV Meld Optimizer", ImGuiWindowFlags.None)
     {
@@ -44,20 +42,24 @@ public class MainWindow : Window, IDisposable
             }));
             return $"{f.Name} ({stats})";
         })).ToArray();
-        _statLabels = Optimizer.Stats;
     }
 
     public void Dispose() { }
 
-    /// <summary>Public hook so the Plugin can populate state from equipped gear.</summary>
     public void LoadEquippedGear()
     {
         try { Plugin.LoadEquippedIntoState(_state); }
         catch (Exception e) { Plugin.Chat.PrintError($"[Bisme] {e.Message}"); }
     }
 
-    /// <summary>Public hook so the Plugin can trigger auto-optimize.</summary>
     public void RunOptimize() => Optimizer.OptimizeMateria(_data, _state);
+
+    public void SyncToJob(string jobAbbr)
+    {
+        if (!_data.Jobs.Contains(jobAbbr)) return;
+        _state.Job = jobAbbr;
+        LoadEquippedGear();
+    }
 
     public override void Draw()
     {
@@ -68,7 +70,6 @@ public class MainWindow : Window, IDisposable
         DrawTotalsBar();
         ImGui.Separator();
 
-        // Two-column layout
         var avail = ImGui.GetContentRegionAvail();
         var leftWidth = avail.X * 0.62f;
 
@@ -103,11 +104,7 @@ public class MainWindow : Window, IDisposable
         ImGui.SameLine();
         if (ImGui.Button("Load BiS Gear")) Optimizer.LoadBisGear(_data, _state);
         ImGui.SameLine();
-        if (ImGui.Button("Load Equipped"))
-        {
-            try { Plugin.LoadEquippedIntoState(_state); }
-            catch (Exception e) { Plugin.Chat.PrintError($"[Bisme] {e.Message}"); }
-        }
+        if (ImGui.Button("Load Equipped")) LoadEquippedGear();
         ImGui.SameLine();
         if (ImGui.Button("Reset")) ResetGear();
         ImGui.SameLine();
@@ -148,7 +145,7 @@ public class MainWindow : Window, IDisposable
                 if (!string.IsNullOrEmpty(bonusStr))
                 {
                     ImGui.SameLine();
-                    ImGui.TextDisabled($"→ {bonusStr}");
+                    ImGui.TextDisabled($"-> {bonusStr}");
                 }
             }
         }
@@ -158,7 +155,7 @@ public class MainWindow : Window, IDisposable
     {
         var target = Optimizer.BisTarget(_data, _state.Job);
         var relevant = Optimizer.RelevantStats(_data, _state.Job);
-        var targetStr = string.Join(" • ",
+        var targetStr = string.Join(" | ",
             relevant.Select(s => $"{Optimizer.StatNames[s]}: {target[s]}"));
 
         int filled = 0, totalSlots = 0;
@@ -202,7 +199,6 @@ public class MainWindow : Window, IDisposable
             var g = _state.Gear[slot];
             BisItem? it = g.ItemId.HasValue ? _data.GetItem(g.ItemId.Value) : null;
 
-            // 5 materia columns; show only as many as the item has slots
             for (int i = 0; i < 5; i++)
             {
                 ImGui.TableNextColumn();
@@ -221,7 +217,7 @@ public class MainWindow : Window, IDisposable
         if (g.ItemId.HasValue)
         {
             var it = _data.GetItem(g.ItemId.Value);
-            if (it != null) currentLabel = $"i{it.Ilvl} • {it.Name}";
+            if (it != null) currentLabel = $"i{it.Ilvl} - {it.Name}";
         }
 
         ImGui.SetNextItemWidth(-1);
@@ -235,7 +231,7 @@ public class MainWindow : Window, IDisposable
             foreach (var it in items)
             {
                 bool selected = g.ItemId == it.Id;
-                if (ImGui.Selectable($"i{it.Ilvl} • {it.Name}", selected))
+                if (ImGui.Selectable($"i{it.Ilvl} - {it.Name}", selected))
                 {
                     g.ItemId = it.Id;
                     var sc = it.Adv ? 5 : it.MSlots;
@@ -253,7 +249,6 @@ public class MainWindow : Window, IDisposable
         var current = g.Materia[idx];
         var label = current == null ? "— empty —" : $"{Optimizer.StatNames[current]} +{_data.GetGradeValue(grade, current)}";
 
-        // Color the advanced (overmeld) slots purple
         var isAdv = idx >= item.MSlots;
         if (isAdv) ImGui.PushStyleColor(ImGuiCol.FrameBg, new Vector4(0.32f, 0.18f, 0.38f, 1f));
 
@@ -286,7 +281,7 @@ public class MainWindow : Window, IDisposable
 
         ImGui.TableSetupColumn("Stat", ImGuiTableColumnFlags.WidthFixed, 70);
         ImGui.TableSetupColumn("Current / Target", ImGuiTableColumnFlags.WidthStretch, 2);
-        ImGui.TableSetupColumn("Δ", ImGuiTableColumnFlags.WidthFixed, 70);
+        ImGui.TableSetupColumn("Delta", ImGuiTableColumnFlags.WidthFixed, 70);
 
         foreach (var s in Optimizer.Stats)
         {
@@ -313,9 +308,7 @@ public class MainWindow : Window, IDisposable
         ImGui.EndTable();
 
         ImGui.Spacing();
-        ImGui.TextWrapped(
-            "Values = gear + materia + food (without +420 base). Optimizer respects per-piece caps " +
-            "and uses grade XII on base + 1st advanced slot, grade XI on later overmelds.");
+        ImGui.TextWrapped("Values = gear + materia + food (no +420 base). Optimizer respects per-piece caps and uses grade XII on base + 1st advanced slot, grade XI on later overmelds.");
     }
 
     private void ResetGear()

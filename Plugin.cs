@@ -19,6 +19,7 @@ public sealed class Plugin : IDalamudPlugin
     [PluginService] public static IDataManager           DataManager      { get; private set; } = null!;
     [PluginService] public static IChatGui               Chat             { get; private set; } = null!;
     [PluginService] public static IPluginLog             Log              { get; private set; } = null!;
+    [PluginService] public static IFramework             Framework        { get; private set; } = null!;
 
     private const string CmdMain = "/bisme";
 
@@ -26,7 +27,6 @@ public sealed class Plugin : IDalamudPlugin
     private readonly MainWindow _mainWindow;
     private readonly BisData _data;
 
-    // Static accessor for the window so MainWindow.LoadEquipped can reach the Plugin
     public static Plugin Instance { get; private set; } = null!;
 
     public Plugin()
@@ -53,14 +53,28 @@ public sealed class Plugin : IDalamudPlugin
         {
             HelpMessage =
                 "Open Bisme meld optimizer. Args:\n" +
-                "  (no arg)   → toggle the optimizer window\n" +
-                "  load       → open window + load currently equipped gear\n" +
-                "  optimize   → open window + load equipped + auto-optimize"
+                "  (no arg)   -> toggle the optimizer window\n" +
+                "  load       -> open window + load currently equipped gear\n" +
+                "  optimize   -> open window + load equipped + auto-optimize"
         });
+
+        // Auto-sync the optimizer to the player's current job, both at plugin load
+        // and whenever they switch class in-game.
+        ClientState.ClassJobChanged += OnClassJobChanged;
+        Framework.RunOnTick(() =>
+        {
+            try
+            {
+                if (ClientState.IsLoggedIn && ObjectTable.LocalPlayer != null)
+                    OnClassJobChanged(ObjectTable.LocalPlayer.ClassJob.RowId);
+            }
+            catch (Exception e) { Log.Warning(e, "[Bisme] Initial class sync failed"); }
+        }, delayTicks: 30);
     }
 
     public void Dispose()
     {
+        ClientState.ClassJobChanged -= OnClassJobChanged;
         CommandManager.RemoveHandler(CmdMain);
         PluginInterface.UiBuilder.Draw -= _windowSystem.Draw;
         _windowSystem.RemoveAllWindows();
@@ -80,12 +94,12 @@ public sealed class Plugin : IDalamudPlugin
                 case "load":
                 case "equipped":
                     _mainWindow.IsOpen = true;
-                    LoadEquippedIntoWindow();
+                    _mainWindow.LoadEquippedGear();
                     break;
                 case "optimize":
                 case "opt":
                     _mainWindow.IsOpen = true;
-                    LoadEquippedIntoWindow();
+                    _mainWindow.LoadEquippedGear();
                     _mainWindow.RunOptimize();
                     break;
                 default:
@@ -100,12 +114,28 @@ public sealed class Plugin : IDalamudPlugin
         }
     }
 
-    private void LoadEquippedIntoWindow() => _mainWindow.LoadEquippedGear();
+    private void OnClassJobChanged(uint classJobId)
+    {
+        try
+        {
+            var sheet = DataManager.GetExcelSheet<Lumina.Excel.Sheets.ClassJob>();
+            var row = sheet.GetRow(classJobId);
+            var abbr = row.Abbreviation.ExtractText();
+            if (string.IsNullOrWhiteSpace(abbr)) return;
 
-    /// <summary>
-    /// Read currently equipped gear from the game's InventoryManager and populate the given state.
-    /// Called from MainWindow when user clicks "Load Equipped".
-    /// </summary>
+            // Defer slightly so the inventory has time to settle after the switch.
+            Framework.RunOnTick(() =>
+            {
+                try { _mainWindow.SyncToJob(abbr); }
+                catch (Exception e) { Log.Warning(e, "[Bisme] SyncToJob failed"); }
+            }, delayTicks: 10);
+        }
+        catch (Exception e)
+        {
+            Log.Error(e, "[Bisme] Class change handler failed");
+        }
+    }
+
     public static unsafe void LoadEquippedIntoState(Optimizer.State state)
     {
         var local = ObjectTable.LocalPlayer;
@@ -121,19 +151,17 @@ public sealed class Plugin : IDalamudPlugin
         if (equipped == null || !equipped->IsLoaded)
             throw new InvalidOperationException("Equipped items container not loaded.");
 
-        // Reset
         foreach (var slot in Optimizer.Slots)
             state.Gear[slot] = new Optimizer.GearSlot();
 
-        // Map slot indices (game order) to our slot keys
         string?[] mapping =
         {
-            "Weapon",     // 0 main hand
-            null,         // 1 offhand (PLD shield)
+            "Weapon",     // 0
+            null,         // 1 offhand
             "Head",       // 2
             "Body",       // 3
             "Hand",       // 4
-            null,         // 5 waist (obsolete)
+            null,         // 5 waist
             "Legs",       // 6
             "Feet",       // 7
             "Ears",       // 8
@@ -151,7 +179,7 @@ public sealed class Plugin : IDalamudPlugin
 
             var slot = equipped->GetInventorySlot(i);
             if (slot == null) continue;
-            var itemId = (int)(slot->ItemId % 1000000); // strip HQ flag
+            var itemId = (int)(slot->ItemId % 1000000);
             if (itemId == 0) continue;
 
             var item = Instance._data.GetItem(itemId);
@@ -159,15 +187,13 @@ public sealed class Plugin : IDalamudPlugin
 
             var gs = new Optimizer.GearSlot { ItemId = itemId };
             var sc = item.Adv ? 5 : item.MSlots;
-            gs.Materia = System.Linq.Enumerable.Repeat<string?>(null, sc).ToList();
+            gs.Materia = Enumerable.Repeat<string?>(null, sc).ToList();
 
-            // Read materia from inventory item
             for (var m = 0; m < 5 && m < sc; m++)
             {
                 var matRow = slot->Materia[m];
                 if (matRow == 0) break;
                 var grade = slot->MateriaGrades[m];
-                // Map (matRow, grade) → stat code via our materia grades table
                 var stat = ResolveMateriaStat(matRow, grade);
                 if (stat != null) gs.Materia[m] = stat;
             }
@@ -176,10 +202,6 @@ public sealed class Plugin : IDalamudPlugin
         }
     }
 
-    /// <summary>
-    /// Resolve a (materia row, grade) pair from the game into a stat code (CRT/DET/...).
-    /// Cross-reference: the materia row has a fixed baseParam (stat type), grade picks within it.
-    /// </summary>
     private static unsafe string? ResolveMateriaStat(ushort materiaRow, byte grade)
     {
         try
@@ -188,7 +210,6 @@ public sealed class Plugin : IDalamudPlugin
             var row = sheet.GetRow(materiaRow);
             if (grade >= row.Item.Count) return null;
             var itemId = (int)row.Item[grade].RowId;
-            // Reverse lookup: item ID → stat
             return Instance._data.MateriaIdToStat.GetValueOrDefault(itemId);
         }
         catch { return null; }
