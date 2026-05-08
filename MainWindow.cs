@@ -114,6 +114,20 @@ public class MainWindow : Window, IDisposable
         if (ImGui.Button("Auto-Optimize Materia"))
             Optimizer.OptimizeMateria(_data, _state);
         ImGui.PopStyleColor(2);
+
+        ImGui.SameLine();
+        ImGui.PushStyleColor(ImGuiCol.Button, new Vector4(0.13f, 0.55f, 0.85f, 1f));
+        if (ImGui.Button("Send to BisBuddy"))
+        {
+            try
+            {
+                var json = BisBuddyExport.Build(_data, _state);
+                ImGui.SetClipboardText(json);
+                Plugin.Chat.Print("[Bisme] Gearset JSON copied. Open /bisbuddy -> Add Gearset -> JSON -> paste.");
+            }
+            catch (Exception e) { Plugin.Chat.PrintError($"[Bisme] {e.Message}"); }
+        }
+        ImGui.PopStyleColor();
     }
 
     private void DrawFoodBar()
