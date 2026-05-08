@@ -47,7 +47,7 @@ jobs:
           Copy-Item bin/Release/Bisme.dll $stage/
           Copy-Item bin/Release/Bisme.json $stage/
           Copy-Item bin/Release/Bisme.deps.json $stage/
-          Compress-Archive -Path "$stage/*" -DestinationPath "${{ github.workspace }}/latest.zip"
+          Compress-Archive -Path "$stage/*" -DestinationPath "${{ github.workspace }}/latest.zip" -Force
 
       - name: Update pluginmaster.json
         shell: pwsh
