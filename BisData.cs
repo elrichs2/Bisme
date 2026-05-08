@@ -15,6 +15,7 @@ public class BisItem
     [JsonPropertyName("stats")]   public Dictionary<string, int> Stats { get; set; } = new();
     [JsonPropertyName("mSlots")]  public int MSlots { get; set; }
     [JsonPropertyName("adv")]     public bool Adv { get; set; }
+    [JsonPropertyName("hq")]      public bool Hq { get; set; }
 
     public override string ToString() => $"i{Ilvl} {Name}";
 }
@@ -49,7 +50,6 @@ public class BisData
     [JsonPropertyName("slotRatios")]      public Dictionary<string, double> SlotRatios { get; set; } = new();
     [JsonPropertyName("materiaGrades")]   public Dictionary<string, Dictionary<string, MateriaGrade>> MateriaGrades { get; set; } = new();
 
-    // Derived
     public Dictionary<int, string> MateriaIdToStat { get; private set; } = new();
 
     public static BisData Load()
@@ -62,7 +62,6 @@ public class BisData
             PropertyNameCaseInsensitive = true
         }) ?? throw new System.Exception("Failed to parse data.json");
 
-        // Build reverse map: materia item ID → stat code
         foreach (var (grade, stats) in data.MateriaGrades)
             foreach (var (stat, mg) in stats)
                 if (mg.Id != 0) data.MateriaIdToStat[mg.Id] = stat;
@@ -75,7 +74,7 @@ public class BisData
 
     public IEnumerable<BisItem> ItemsForJobSlot(string job, string slot)
     {
-        if (!JobItems.TryGetValue(job, out var ids)) return System.Linq.Enumerable.Empty<BisItem>();
+        if (!JobItems.TryGetValue(job, out var ids)) return Enumerable.Empty<BisItem>();
         var slotKey = slot.StartsWith("Ring") ? "Ring" : slot;
         return ids
             .Select(id => GetItem(id))

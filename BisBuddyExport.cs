@@ -10,17 +10,14 @@ namespace Bisme;
 /// </summary>
 public static class BisBuddyExport
 {
+    private const uint HqOffset = 1_000_000u;
+
     private static readonly Dictionary<string, uint> JobToClassJobId = new()
     {
-        // Tanks
         ["PLD"] = 19, ["WAR"] = 21, ["DRK"] = 32, ["GNB"] = 37,
-        // Healers
         ["WHM"] = 24, ["SCH"] = 28, ["AST"] = 33, ["SGE"] = 40,
-        // Melee
         ["MNK"] = 20, ["DRG"] = 22, ["NIN"] = 30, ["SAM"] = 34, ["RPR"] = 39, ["VPR"] = 41,
-        // Phys ranged
         ["BRD"] = 23, ["MCH"] = 31, ["DNC"] = 38,
-        // Casters
         ["BLM"] = 25, ["SMN"] = 27, ["RDM"] = 35, ["PCT"] = 42,
     };
 
@@ -44,6 +41,7 @@ public static class BisBuddyExport
                 var grade = data.GetSlotGrade(item, i);
                 var matId = data.GetGradeMateriaId(grade, stat);
                 if (matId == 0) continue;
+                // Materia don't have HQ versions; use the raw id.
                 materiaList.Add(new
                 {
                     ItemId = (uint)matId,
@@ -52,9 +50,13 @@ public static class BisBuddyExport
                 });
             }
 
+            // BisBuddy expects HQ id (RowId + 1_000_000) for HQ-able items.
+            // Savage/tome gear is NQ-only; crafted gear is HQ-able.
+            var exportedItemId = (uint)g.ItemId.Value + (item.Hq ? HqOffset : 0u);
+
             gearpieces.Add(new
             {
-                ItemId = (uint)g.ItemId.Value,
+                ItemId = exportedItemId,
                 IsCollected = false,
                 CollectLock = false,
                 ItemMateria = materiaList,
