@@ -15,6 +15,7 @@
 
   <ItemGroup>
     <None Include="Bisme.json" CopyToOutputDirectory="PreserveNewest" />
+    <EmbeddedResource Include="data.json" />
   </ItemGroup>
 
 </Project>

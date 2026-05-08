@@ -1,9 +1,8 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
-using System.Text.Json;
-using Dalamud.Bindings.ImGui;
+using System.Linq;
 using Dalamud.Game.Command;
+using Dalamud.Interface.Windowing;
 using Dalamud.IoC;
 using Dalamud.Plugin;
 using Dalamud.Plugin.Services;
@@ -21,93 +20,99 @@ public sealed class Plugin : IDalamudPlugin
     [PluginService] public static IChatGui               Chat             { get; private set; } = null!;
     [PluginService] public static IPluginLog             Log              { get; private set; } = null!;
 
-    private const string Cmd = "/bisme";
+    private const string CmdMain = "/bisme";
 
-    // Gear slot index → xivgear key (matches order returned by EquippedItems container)
-    // Order in InventoryType.EquippedItems is well known: 0..12
-    private static readonly string?[] SlotIndexToName = {
-        "MainHand",   // 0  - main weapon
-        "OffHand",    // 1  - shield (PLD only)
-        "Head",       // 2
-        "Body",       // 3
-        "Hand",       // 4  (Hands → "Hand" in xivgear)
-        "Waist",      // 5  - obsolete since SHB but slot exists
-        "Legs",       // 6
-        "Feet",       // 7
-        "Ears",       // 8
-        "Neck",       // 9
-        "Wrist",      // 10
-        "RingLeft",   // 11
-        "RingRight"   // 12
-    };
+    private readonly WindowSystem _windowSystem = new("Bisme");
+    private readonly MainWindow _mainWindow;
+    private readonly BisData _data;
 
-    // Convert slot index to xivgear's expected key.
-    private static string? XivgearKey(int idx)
-    {
-        // xivgear uses "Weapon" for the main hand slot
-        if (idx == 0) return "Weapon";
-        return SlotIndexToName.Length > idx ? SlotIndexToName[idx] : null;
-    }
+    // Static accessor for the window so MainWindow.LoadEquipped can reach the Plugin
+    public static Plugin Instance { get; private set; } = null!;
 
     public Plugin()
     {
-        CommandManager.AddHandler(Cmd, new CommandInfo(OnCommand)
+        Instance = this;
+        try
+        {
+            _data = BisData.Load();
+            Log.Information($"[Bisme] Loaded {_data.Items.Count} items, {_data.Foods.Count} foods, {_data.Jobs.Count} jobs.");
+        }
+        catch (Exception e)
+        {
+            Log.Error(e, "[Bisme] Failed to load data.json");
+            throw;
+        }
+
+        _mainWindow = new MainWindow(_data);
+        _windowSystem.AddWindow(_mainWindow);
+
+        PluginInterface.UiBuilder.Draw       += _windowSystem.Draw;
+        PluginInterface.UiBuilder.OpenMainUi += () => _mainWindow.IsOpen = true;
+
+        CommandManager.AddHandler(CmdMain, new CommandInfo(OnCommand)
         {
             HelpMessage =
-                "Export equipped gear + materia. Args:\n" +
-                "  (no arg)   → print JSON to chat\n" +
-                "  file       → save to %USERPROFILE%/Documents/Bisme.json\n" +
-                "  clipboard  → copy JSON to clipboard"
+                "Open Bisme meld optimizer. Args:\n" +
+                "  (no arg)   → toggle the optimizer window\n" +
+                "  load       → open window + load currently equipped gear\n" +
+                "  optimize   → open window + load equipped + auto-optimize"
         });
     }
 
-    public void Dispose() => CommandManager.RemoveHandler(Cmd);
+    public void Dispose()
+    {
+        CommandManager.RemoveHandler(CmdMain);
+        PluginInterface.UiBuilder.Draw -= _windowSystem.Draw;
+        _windowSystem.RemoveAllWindows();
+        _mainWindow.Dispose();
+    }
 
     private void OnCommand(string command, string arguments)
     {
         try
         {
-            var json = BuildJson();
             var arg = arguments.Trim().ToLowerInvariant();
             switch (arg)
             {
                 case "":
-                case "chat":
-                    Chat.Print($"[Bisme] {json}");
-                    Chat.Print("[Bisme] (Tip: '/bisme file' or '/bisme clipboard')");
+                    _mainWindow.IsOpen = !_mainWindow.IsOpen;
                     break;
-
-                case "file":
-                    var docs = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
-                    var path = Path.Combine(docs, "Bisme.json");
-                    File.WriteAllText(path, json);
-                    Chat.Print($"[Bisme] Saved → {path}");
+                case "load":
+                case "equipped":
+                    _mainWindow.IsOpen = true;
+                    LoadEquippedIntoWindow();
                     break;
-
-                case "clipboard":
-                case "clip":
-                    SetClipboard(json);
-                    Chat.Print("[Bisme] Copied JSON to clipboard.");
+                case "optimize":
+                case "opt":
+                    _mainWindow.IsOpen = true;
+                    LoadEquippedIntoWindow();
+                    _mainWindow.RunOptimize();
                     break;
-
                 default:
-                    Chat.Print($"[Bisme] Unknown arg '{arg}'. Use: chat | file | clipboard");
+                    Chat.Print($"[Bisme] Unknown arg '{arg}'. Use: (none) | load | optimize");
                     break;
             }
         }
-        catch (Exception ex)
+        catch (Exception e)
         {
-            Log.Error(ex, "Bisme failed");
-            Chat.PrintError($"[Bisme] Error: {ex.Message}");
+            Log.Error(e, "[Bisme] Command failed");
+            Chat.PrintError($"[Bisme] {e.Message}");
         }
     }
 
-    private unsafe string BuildJson()
+    private void LoadEquippedIntoWindow() => _mainWindow.LoadEquippedGear();
+
+    /// <summary>
+    /// Read currently equipped gear from the game's InventoryManager and populate the given state.
+    /// Called from MainWindow when user clicks "Load Equipped".
+    /// </summary>
+    public static unsafe void LoadEquippedIntoState(Optimizer.State state)
     {
         var local = ObjectTable.LocalPlayer;
         if (local == null) throw new InvalidOperationException("LocalPlayer is null (login required).");
 
         var jobAbbr = local.ClassJob.ValueNullable?.Abbreviation.ExtractText() ?? "???";
+        if (Instance._data.Jobs.Contains(jobAbbr)) state.Job = jobAbbr;
 
         var inv = InventoryManager.Instance();
         if (inv == null) throw new InvalidOperationException("InventoryManager unavailable.");
@@ -116,88 +121,76 @@ public sealed class Plugin : IDalamudPlugin
         if (equipped == null || !equipped->IsLoaded)
             throw new InvalidOperationException("Equipped items container not loaded.");
 
-        var items = new Dictionary<string, object>();
+        // Reset
+        foreach (var slot in Optimizer.Slots)
+            state.Gear[slot] = new Optimizer.GearSlot();
+
+        // Map slot indices (game order) to our slot keys
+        string?[] mapping =
+        {
+            "Weapon",     // 0 main hand
+            null,         // 1 offhand (PLD shield)
+            "Head",       // 2
+            "Body",       // 3
+            "Hand",       // 4
+            null,         // 5 waist (obsolete)
+            "Legs",       // 6
+            "Feet",       // 7
+            "Ears",       // 8
+            "Neck",       // 9
+            "Wrist",      // 10
+            "RingLeft",   // 11
+            "RingRight"   // 12
+        };
 
         for (var i = 0; i < equipped->Size; i++)
         {
-            var slotName = XivgearKey(i);
-            if (slotName == null) continue;
+            if (i >= mapping.Length) continue;
+            var slotKey = mapping[i];
+            if (slotKey == null) continue;
 
             var slot = equipped->GetInventorySlot(i);
             if (slot == null) continue;
+            var itemId = (int)(slot->ItemId % 1000000); // strip HQ flag
+            if (itemId == 0) continue;
 
-            var itemId = slot->ItemId;
-            if (itemId == 0) continue; // empty slot
+            var item = Instance._data.GetItem(itemId);
+            if (item == null) continue;
 
-            // Strip HQ flag (1,000,000 added for HQ in inventory but xivgear uses base id)
-            var baseId = itemId % 1000000;
+            var gs = new Optimizer.GearSlot { ItemId = itemId };
+            var sc = item.Adv ? 5 : item.MSlots;
+            gs.Materia = System.Linq.Enumerable.Repeat<string?>(null, sc).ToList();
 
-            // Read materia (up to 5)
-            var materiaList = new List<object>();
-            for (var m = 0; m < 5; m++)
+            // Read materia from inventory item
+            for (var m = 0; m < 5 && m < sc; m++)
             {
-                var matId = slot->Materia[m];
-                if (matId == 0) break;
-                // Xivgear expects the actual materia *item* ID, not the materia row.
-                // Dalamud's slot->Materia[m] is the material row (1..n).
-                // We need to map (materiaRow, grade) → item ID via the Materia sheet.
+                var matRow = slot->Materia[m];
+                if (matRow == 0) break;
                 var grade = slot->MateriaGrades[m];
-                var actualItemId = ResolveMateriaItemId(matId, grade);
-                materiaList.Add(new { id = actualItemId, locked = false });
+                // Map (matRow, grade) → stat code via our materia grades table
+                var stat = ResolveMateriaStat(matRow, grade);
+                if (stat != null) gs.Materia[m] = stat;
             }
 
-            items[slotName] = new
-            {
-                id = (int)baseId,
-                materia = materiaList
-            };
+            state.Gear[slotKey] = gs;
         }
-
-        // Try to read currently selected food/medicine (best-effort: not always trivially exposed)
-        // We skip food for now — user picks it in the optimizer UI.
-        var sheet = new
-        {
-            name = $"{local.Name.TextValue} — {jobAbbr} Live Export",
-            description = $"Exported from Bisme at {DateTime.Now:yyyy-MM-dd HH:mm}",
-            job = jobAbbr,
-            level = local.Level,
-            partyBonus = 5,
-            race = "Hyur",
-            food = 0,
-            items,
-            sims = Array.Empty<object>(),
-            customItems = Array.Empty<object>(),
-            customFoods = Array.Empty<object>(),
-            isSeparator = false,
-            timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
-        };
-
-        return JsonSerializer.Serialize(sheet,
-            new JsonSerializerOptions { WriteIndented = true });
     }
 
     /// <summary>
-    /// Map (materiaRowId, grade) → actual Item id of that materia.
+    /// Resolve a (materia row, grade) pair from the game into a stat code (CRT/DET/...).
+    /// Cross-reference: the materia row has a fixed baseParam (stat type), grade picks within it.
     /// </summary>
-    private static uint ResolveMateriaItemId(ushort materiaRow, byte grade)
+    private static unsafe string? ResolveMateriaStat(ushort materiaRow, byte grade)
     {
         try
         {
             var sheet = DataManager.GetExcelSheet<Lumina.Excel.Sheets.Materia>();
             var row = sheet.GetRow(materiaRow);
-            if (grade < row.Item.Count)
-                return row.Item[grade].RowId;
+            if (grade >= row.Item.Count) return null;
+            var itemId = (int)row.Item[grade].RowId;
+            // Reverse lookup: item ID → stat
+            return Instance._data.MateriaIdToStat.GetValueOrDefault(itemId);
         }
-        catch
-        {
-            // best-effort — if Lumina path differs across Dalamud versions, return 0
-        }
-        return 0;
-    }
-
-    private static void SetClipboard(string text)
-    {
-        // ImGui's clipboard works in Dalamud (uses the game's Win32 clipboard internally).
-        ImGui.SetClipboardText(text);
+        catch { return null; }
     }
 }
