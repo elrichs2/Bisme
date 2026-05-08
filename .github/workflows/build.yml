@@ -52,10 +52,14 @@ jobs:
       - name: Update pluginmaster.json
         shell: pwsh
         run: |
+          # ConvertFrom-Json on a one-element array auto-unwraps to a single object,
+          # then ConvertTo-Json emits {...} instead of [{...}] — which breaks Dalamud's parser.
+          # Use -AsArray (PS 7+) to force the array form on output.
           $pm = Get-Content pluginmaster.json -Raw | ConvertFrom-Json
           $epoch = [int][double]::Parse((Get-Date -UFormat %s))
-          $pm[0].LastUpdate = "$epoch"
-          $pm | ConvertTo-Json -Depth 5 | Set-Content pluginmaster.json -Encoding UTF8
+          if ($pm -is [System.Array]) { $pm[0].LastUpdate = "$epoch" }
+          else { $pm.LastUpdate = "$epoch"; $pm = @($pm) }
+          $pm | ConvertTo-Json -Depth 5 -AsArray | Set-Content pluginmaster.json -Encoding utf8NoBOM
 
       - name: Commit pluginmaster.json
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
