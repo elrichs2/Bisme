@@ -12,7 +12,7 @@
     "Changelog": "Initial release.",
     "Tags": ["gear", "export", "xivgear", "meld", "materia"],
     "CategoryTags": ["utility"],
-    "DalamudApiLevel": 13,
+    "DalamudApiLevel": 15,
     "RepoUrl": "https://github.com/elrichs2/Bisme",
     "IconUrl": "https://raw.githubusercontent.com/elrichs2/Bisme/main/icon.png",
     "DownloadCount": 0,
