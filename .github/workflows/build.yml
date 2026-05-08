@@ -2,11 +2,18 @@ name: Build & Release
 
 on:
   push:
-    tags:
-      - 'v*'
     branches:
       - main
+    tags:
+      - 'v*'
+    paths-ignore:
+      - 'pluginmaster.json'
+      - 'README.md'
+      - '.gitignore'
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -60,14 +67,25 @@ jobs:
           git push
         shell: bash
 
+      - name: Delete previous "latest" release & tag (if any)
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        continue-on-error: true
+        run: |
+          gh release delete latest --yes --cleanup-tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+
       - name: Create / update Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'latest' }}
-          name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'latest build' }}
+          name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'Latest build' }}
+          target_commitish: ${{ github.sha }}
           files: |
             latest.zip
             pluginmaster.json
           prerelease: false
+          make_latest: 'true'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
