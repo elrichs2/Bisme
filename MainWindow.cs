@@ -15,8 +15,6 @@ public class MainWindow : Window, IDisposable
     private readonly string[] _jobLabels;
     private readonly string[] _foodLabels;
 
-    // Content sync modes (label + ilvl). Built from data.SyncIlvls at startup
-    // so adding/removing modes is data-driven.
     private readonly string[] _contentModeLabels;
     private readonly int[] _contentModeIlvls;
     private int _contentModeIdx = 0;
@@ -49,9 +47,6 @@ public class MainWindow : Window, IDisposable
             return $"{f.Name} ({stats})";
         })).ToArray();
 
-        // Snapshot the content-mode table into parallel arrays for ImGui.Combo.
-        // Falls back to a hard-coded "Unsynced" entry if the JSON is empty so
-        // the UI still has something to render.
         if (_data.SyncIlvls.Count > 0)
         {
             _contentModeLabels = _data.SyncIlvls.Keys.ToArray();
@@ -63,6 +58,7 @@ public class MainWindow : Window, IDisposable
             _contentModeIlvls = new[] { 0 };
         }
         _state.SyncIlvl = _contentModeIlvls[_contentModeIdx];
+        _state.ContentMode = _contentModeLabels[_contentModeIdx];
     }
 
     public void Dispose() { }
@@ -129,14 +125,22 @@ public class MainWindow : Window, IDisposable
         if (ImGui.Combo("##content", ref _contentModeIdx, _contentModeLabels, _contentModeLabels.Length))
         {
             _state.SyncIlvl = _contentModeIlvls[_contentModeIdx];
-            // Auto-reload BiS gear at the right ilvl tier so the user does not
-            // have to click Load BiS Gear separately every time the mode changes.
+            _state.ContentMode = _contentModeLabels[_contentModeIdx];
+            // Auto-reload BiS gear: picks the curated set if one is embedded
+            // for (job, content), else falls back to the algorithmic scorer.
             Optimizer.LoadBisGear(_data, _state);
         }
         if (_state.SyncIlvl > 0)
         {
             ImGui.SameLine();
             ImGui.TextColored(new Vector4(1f, 0.6f, 0f, 1f), $"(sync i{_state.SyncIlvl})");
+        }
+        // Indicator: curated theorycraft data is in use for this combo.
+        var curated = _data.GetCuratedGearset(_state.Job, _state.ContentMode);
+        if (curated != null)
+        {
+            ImGui.SameLine();
+            ImGui.TextColored(new Vector4(0.3f, 0.85f, 0.3f, 1f), $"[curated: {curated.Name}]");
         }
 
         ImGui.SameLine();
@@ -211,9 +215,6 @@ public class MainWindow : Window, IDisposable
             relevant.Select(s => $"{Optimizer.StatNames[s]}: {target[s]}"));
 
         int filled = 0, totalSlots = 0;
-        // Iterate only the slots that apply to the current job; this excludes
-        // OffHand for non-shield jobs and prevents counting an empty shield slot
-        // in the materia-fill ratio.
         foreach (var slot in Optimizer.SlotsForJob(_state.Job))
         {
             var g = _state.Gear.GetValueOrDefault(slot);
@@ -242,8 +243,6 @@ public class MainWindow : Window, IDisposable
         for (int i = 0; i < 5; i++)
             ImGui.TableSetupColumn($"M{i + 1}", ImGuiTableColumnFlags.WidthStretch, 1f);
 
-        // Render only slots relevant to the current job. Shields (OffHand) appear
-        // for PLD; for everyone else the row is hidden entirely.
         foreach (var slot in Optimizer.SlotsForJob(_state.Job))
         {
             ImGui.TableNextRow();
@@ -256,8 +255,6 @@ public class MainWindow : Window, IDisposable
             var g = _state.Gear[slot];
             BisItem? it = g.ItemId.HasValue ? _data.GetItem(g.ItemId.Value) : null;
 
-            // Materia columns. Shields have MSlots=0 so g.Materia.Count is 0 and
-            // every cell stays empty -- visually a clean blank row past the picker.
             for (int i = 0; i < 5; i++)
             {
                 ImGui.TableNextColumn();
@@ -381,8 +378,8 @@ public class MainWindow : Window, IDisposable
                 $"Sync mode active: gear effective ilvl <= {_state.SyncIlvl}.");
             ImGui.TextWrapped(
                 "Materia placement respects synced per-piece caps so nothing overcaps in this fight. " +
-                "Note: this panel currently shows raw (non-rescaled) gear stats -- the BiS target " +
-                "comparison is approximate when sync is active. Re-run Auto-Optimize after switching mode.");
+                "Note: this panel shows raw (non-rescaled) gear stats -- BiS target comparison is " +
+                "approximate when sync is active.");
             ImGui.Spacing();
         }
         ImGui.TextWrapped("Values = gear + materia + food (no +420 base). Optimizer respects per-piece caps and uses grade XII on base + 1st advanced slot, grade XI on later overmelds.");
@@ -390,8 +387,6 @@ public class MainWindow : Window, IDisposable
 
     private void ResetGear()
     {
-        // Reset every possible slot, including OffHand even for jobs that won't
-        // render it -- keeps the Gear dict shape stable across job switches.
         foreach (var slot in Optimizer.Slots)
             _state.Gear[slot] = new Optimizer.GearSlot();
     }

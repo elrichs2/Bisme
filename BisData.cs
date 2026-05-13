@@ -39,6 +39,25 @@ public class MateriaGrade
     [JsonPropertyName("value")] public int Value { get; set; }
 }
 
+/// <summary>
+/// One curated BiS gearset for a (job, content) combo, as imported from a
+/// xivgear shortlink. Items keyed by slot, melds are stat codes ("CRT", "DH"...)
+/// in physical slot order, so we know exactly which materia goes where.
+/// </summary>
+public class BisGearpiece
+{
+    [JsonPropertyName("id")]    public int Id { get; set; }
+    [JsonPropertyName("melds")] public List<string?> Melds { get; set; } = new();
+}
+
+public class BisGearset
+{
+    [JsonPropertyName("name")]   public string Name { get; set; } = "";
+    [JsonPropertyName("source")] public string Source { get; set; } = "";
+    [JsonPropertyName("food")]   public int? Food { get; set; }
+    [JsonPropertyName("items")]  public Dictionary<string, BisGearpiece> Items { get; set; } = new();
+}
+
 public class BisData
 {
     [JsonPropertyName("jobs")]            public List<string> Jobs { get; set; } = new();
@@ -49,10 +68,11 @@ public class BisData
     [JsonPropertyName("ilvlCaps")]        public Dictionary<string, int> IlvlCaps { get; set; } = new();
     [JsonPropertyName("slotRatios")]      public Dictionary<string, double> SlotRatios { get; set; } = new();
     [JsonPropertyName("materiaGrades")]   public Dictionary<string, Dictionary<string, MateriaGrade>> MateriaGrades { get; set; } = new();
-    // Maps a content-mode label (UI dropdown) to its ilvl sync target. A value of 0
-    // means no sync. Used by GetStatCap to recompute per-piece caps when running
-    // sync'd content like Ultimates.
     [JsonPropertyName("syncIlvls")]       public Dictionary<string, int> SyncIlvls { get; set; } = new();
+    // Curated BiS gearsets keyed by [job][contentLabel]. When present, Bisme uses
+    // these item ids and meld patterns verbatim (community theorycraft) instead
+    // of relying on the algorithmic substat scoring.
+    [JsonPropertyName("bisGearsets")]     public Dictionary<string, Dictionary<string, BisGearset>> BisGearsets { get; set; } = new();
 
     public Dictionary<int, string> MateriaIdToStat { get; private set; } = new();
 
@@ -87,12 +107,6 @@ public class BisData
             .OrderByDescending(it => it.Ilvl);
     }
 
-    /// <summary>
-    /// Computes the per-piece substat cap for an item. When <paramref name="syncIlvl"/>
-    /// is greater than 0 and lower than the item's native ilvl, the cap is computed
-    /// at the sync ilvl (Ultimate-style content). Items already below the sync
-    /// threshold keep their native cap.
-    /// </summary>
     public int GetStatCap(BisItem item, int syncIlvl = 0)
     {
         var effectiveIlvl = (syncIlvl > 0 && syncIlvl < item.Ilvl) ? syncIlvl : item.Ilvl;
@@ -112,4 +126,16 @@ public class BisData
 
     public int GetGradeMateriaId(string grade, string stat) =>
         MateriaGrades.TryGetValue(grade, out var g) && g.TryGetValue(stat, out var mg) ? mg.Id : 0;
+
+    /// <summary>
+    /// Look up a curated gearset for (job, contentLabel). Returns null if no
+    /// theorycrafter-provided set is embedded for this combo, in which case
+    /// callers fall back to the algorithmic gear picker.
+    /// </summary>
+    public BisGearset? GetCuratedGearset(string job, string contentLabel)
+    {
+        if (string.IsNullOrEmpty(contentLabel)) return null;
+        if (!BisGearsets.TryGetValue(job, out var perJob)) return null;
+        return perJob.TryGetValue(contentLabel, out var gs) ? gs : null;
+    }
 }

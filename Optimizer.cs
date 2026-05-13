@@ -6,15 +6,12 @@ namespace Bisme;
 
 public static class Optimizer
 {
-    // All possible slots. OffHand is opt-in per-job (see JobsWithOffHand).
     public static readonly string[] Slots =
     {
         "Weapon","OffHand","Head","Body","Hand","Legs","Feet",
         "Ears","Neck","Wrist","RingLeft","RingRight"
     };
 
-    // Jobs that equip an off-hand piece. PLD is the only endgame case;
-    // extend this set if SE ever brings another shield-using job back.
     public static readonly HashSet<string> JobsWithOffHand = new() { "PLD" };
 
     public static IEnumerable<string> SlotsForJob(string job) =>
@@ -54,16 +51,15 @@ public static class Optimizer
         public string Job { get; set; } = "WAR";
         public Dictionary<string, GearSlot> Gear { get; set; } = new();
         public int? FoodId { get; set; }
-        // Active content sync. 0 = no sync (open world, current Savage tier).
-        // Non-zero values (e.g., 735 for FRU) make GetStatCap rescale per-piece
-        // substat caps as if the gear were synced down. Items already below the
-        // sync threshold keep their native cap.
+        // Sync ilvl numeric value (0 = no sync). Used by the per-piece cap math.
         public int SyncIlvl { get; set; } = 0;
+        // Human-readable content label (matches a key in data.SyncIlvls). Used
+        // to look up curated BiS gearsets in data.BisGearsets.
+        public string ContentMode { get; set; } = "";
 
         public static State Empty()
         {
             var s = new State();
-            // Pre-populate ALL slots; UI / optimizer ignore OffHand for jobs without it.
             foreach (var slot in Slots) s.Gear[slot] = new GearSlot();
             return s;
         }
@@ -109,7 +105,6 @@ public static class Optimizer
             var cap = data.GetStatCap(it, state.SyncIlvl);
             var piece = Stats.ToDictionary(s => s, s => it.Stats.GetValueOrDefault(s, 0));
 
-            // Shields have mSlots=0 -> Materia list is empty -> this loop is a no-op.
             for (var i = 0; i < g.Materia.Count; i++)
             {
                 var stat = g.Materia[i];
@@ -141,7 +136,6 @@ public static class Optimizer
         var target = BisTarget(data, state.Job);
         var relevant = RelevantStats(data, state.Job);
 
-        // Gear-only stats
         var gearOnly = Stats.ToDictionary(s => s, _ => 0);
         foreach (var slot in SlotsForJob(state.Job))
         {
@@ -172,11 +166,9 @@ public static class Optimizer
     {
         var target = BisTarget(data, state.Job);
 
-        // Step 1: pick best food
         var bestFood = PickBestFood(data, state);
         if (bestFood != null) state.FoodId = bestFood.Id;
 
-        // Step 2: reset materia, build per-piece state + slot list
         var pieceStat = new Dictionary<string, Dictionary<string, int>>();
         var allSlots = new List<(string Slot, int Idx, BisItem Item, string Grade)>();
 
@@ -188,7 +180,6 @@ public static class Optimizer
             if (it == null) continue;
             pieceStat[slot] = Stats.ToDictionary(s => s, s => it.Stats.GetValueOrDefault(s, 0));
 
-            // Shields: MSlots=0 and Adv=false -> sc=0, no melds added to allSlots.
             var sc = it.Adv ? 5 : it.MSlots;
             g.Materia = Enumerable.Repeat<string?>(null, sc).ToList();
             for (var i = 0; i < sc; i++)
@@ -197,7 +188,6 @@ public static class Optimizer
 
         if (allSlots.Count == 0) return;
 
-        // Total accumulator (gear + food + materia)
         var total = Stats.ToDictionary(s => s, _ => 0);
         foreach (var slot in pieceStat.Keys)
             foreach (var s in Stats) total[s] += pieceStat[slot][s];
@@ -213,9 +203,6 @@ public static class Optimizer
 
         var relevant = RelevantStats(data, state.Job);
 
-        // Step 3: greedy fill with 4-tier scoring. Per-piece cap respects the
-        // active SyncIlvl so melds laid down here will not overcap when the
-        // player enters synced content like FRU.
         foreach (var ms in allSlots)
         {
             var cap = data.GetStatCap(ms.Item, state.SyncIlvl);
@@ -250,33 +237,87 @@ public static class Optimizer
     }
 
     /// <summary>
-    /// Fill every slot with the best item available for the active content mode.
-    /// In sync mode (state.SyncIlvl > 0) we pick the highest-ilvl item that is
-    /// at or below the sync target -- native-ilvl gear has no scaling losses and
-    /// its substat budget exactly matches the sync cap. With no sync we keep
-    /// the previous behaviour: highest ilvl wins.
+    /// Load the best-in-slot gearset for the current job and content mode.
+    /// Preference order:
+    ///   1. Curated gearset embedded in data.bisGearsets (theorycrafted, exact)
+    ///   2. Algorithmic effective-substat scoring (best guess for content not yet curated)
     /// </summary>
     public static void LoadBisGear(BisData data, State state)
     {
-        var sync = state.SyncIlvl;
+        // Try curated first.
+        var curated = data.GetCuratedGearset(state.Job, state.ContentMode);
+        if (curated != null)
+        {
+            // Reset every slot for this job so the previous mode's gear does
+            // not leak into the new layout.
+            foreach (var slot in Slots)
+                state.Gear[slot] = new GearSlot();
+
+            foreach (var (slot, piece) in curated.Items)
+            {
+                if (!state.Gear.ContainsKey(slot)) continue;
+                var it = data.GetItem(piece.Id);
+                if (it == null) continue;
+
+                var gs = new GearSlot { ItemId = piece.Id };
+                var sc = it.Adv ? 5 : it.MSlots;
+                // Initialise the materia list with nulls, then overwrite from
+                // the curated melds list (any extra/missing entries are ignored).
+                gs.Materia = Enumerable.Repeat<string?>(null, sc).ToList();
+                for (var i = 0; i < piece.Melds.Count && i < sc; i++)
+                    gs.Materia[i] = piece.Melds[i];
+
+                state.Gear[slot] = gs;
+            }
+
+            if (curated.Food.HasValue) state.FoodId = curated.Food;
+            return;
+        }
+
+        // No curated set: fall back to the algorithmic scorer.
+        LoadBisGearAlgo(data, state);
+    }
+
+    /// <summary>
+    /// Algorithmic gear picker used when no curated gearset exists for this
+    /// (job, content). Scores items by relevant-substat budget post-sync plus
+    /// an approximate meld budget, and picks the highest score per slot.
+    /// </summary>
+    private static void LoadBisGearAlgo(BisData data, State state)
+    {
+        var relevant = RelevantStats(data, state.Job);
+        double syncCapBase = 0;
+        if (state.SyncIlvl > 0 && data.IlvlCaps.TryGetValue(state.SyncIlvl.ToString(), out var sc))
+            syncCapBase = sc;
+
         foreach (var slot in SlotsForJob(state.Job))
         {
-            // Candidates come pre-sorted by Ilvl descending from ItemsForJobSlot.
             var candidates = data.ItemsForJobSlot(state.Job, slot).ToList();
             BisItem? pick = null;
+            double bestScore = double.NegativeInfinity;
 
-            if (sync > 0)
-                pick = candidates.FirstOrDefault(it => it.Ilvl <= sync);
+            foreach (var it in candidates)
+            {
+                double scale = 1.0;
+                if (syncCapBase > 0 && it.Ilvl > state.SyncIlvl
+                    && data.IlvlCaps.TryGetValue(it.Ilvl.ToString(), out var nc) && nc > 0)
+                {
+                    scale = syncCapBase / nc;
+                }
 
-            // Fallbacks: no sync -> highest available; sync but no item at-or-
-            // below -> fall back to highest, which will be synced down at runtime.
-            pick ??= candidates.FirstOrDefault();
+                double useful = relevant.Sum(s => it.Stats.GetValueOrDefault(s, 0)) * scale;
+                int meldCount = it.Adv ? 5 : it.MSlots;
+                double meldBudget = meldCount * 60.0;
+                double score = useful + meldBudget;
+
+                if (score > bestScore) { bestScore = score; pick = it; }
+            }
 
             if (pick != null)
             {
                 state.Gear[slot].ItemId = pick.Id;
-                var sc = pick.Adv ? 5 : pick.MSlots;
-                state.Gear[slot].Materia = Enumerable.Repeat<string?>(null, sc).ToList();
+                var msc = pick.Adv ? 5 : pick.MSlots;
+                state.Gear[slot].Materia = Enumerable.Repeat<string?>(null, msc).ToList();
             }
         }
     }
