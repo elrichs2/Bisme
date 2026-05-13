@@ -49,6 +49,10 @@ public class BisData
     [JsonPropertyName("ilvlCaps")]        public Dictionary<string, int> IlvlCaps { get; set; } = new();
     [JsonPropertyName("slotRatios")]      public Dictionary<string, double> SlotRatios { get; set; } = new();
     [JsonPropertyName("materiaGrades")]   public Dictionary<string, Dictionary<string, MateriaGrade>> MateriaGrades { get; set; } = new();
+    // Maps a content-mode label (UI dropdown) to its ilvl sync target. A value of 0
+    // means no sync. Used by GetStatCap to recompute per-piece caps when running
+    // sync'd content like Ultimates.
+    [JsonPropertyName("syncIlvls")]       public Dictionary<string, int> SyncIlvls { get; set; } = new();
 
     public Dictionary<int, string> MateriaIdToStat { get; private set; } = new();
 
@@ -83,9 +87,16 @@ public class BisData
             .OrderByDescending(it => it.Ilvl);
     }
 
-    public int GetStatCap(BisItem item)
+    /// <summary>
+    /// Computes the per-piece substat cap for an item. When <paramref name="syncIlvl"/>
+    /// is greater than 0 and lower than the item's native ilvl, the cap is computed
+    /// at the sync ilvl (Ultimate-style content). Items already below the sync
+    /// threshold keep their native cap.
+    /// </summary>
+    public int GetStatCap(BisItem item, int syncIlvl = 0)
     {
-        if (!IlvlCaps.TryGetValue(item.Ilvl.ToString(), out var cap)) return 0;
+        var effectiveIlvl = (syncIlvl > 0 && syncIlvl < item.Ilvl) ? syncIlvl : item.Ilvl;
+        if (!IlvlCaps.TryGetValue(effectiveIlvl.ToString(), out var cap)) return 0;
         if (!SlotRatios.TryGetValue(item.Slot, out var ratio)) return 0;
         return (int)System.Math.Round(cap * ratio);
     }

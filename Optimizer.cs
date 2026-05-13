@@ -54,6 +54,11 @@ public static class Optimizer
         public string Job { get; set; } = "WAR";
         public Dictionary<string, GearSlot> Gear { get; set; } = new();
         public int? FoodId { get; set; }
+        // Active content sync. 0 = no sync (open world, current Savage tier).
+        // Non-zero values (e.g., 735 for FRU) make GetStatCap rescale per-piece
+        // substat caps as if the gear were synced down. Items already below the
+        // sync threshold keep their native cap.
+        public int SyncIlvl { get; set; } = 0;
 
         public static State Empty()
         {
@@ -101,7 +106,7 @@ public static class Optimizer
             var it = data.GetItem(g.ItemId.Value);
             if (it == null) continue;
 
-            var cap = data.GetStatCap(it);
+            var cap = data.GetStatCap(it, state.SyncIlvl);
             var piece = Stats.ToDictionary(s => s, s => it.Stats.GetValueOrDefault(s, 0));
 
             // Shields have mSlots=0 -> Materia list is empty -> this loop is a no-op.
@@ -208,10 +213,12 @@ public static class Optimizer
 
         var relevant = RelevantStats(data, state.Job);
 
-        // Step 3: greedy fill with 4-tier scoring
+        // Step 3: greedy fill with 4-tier scoring. Per-piece cap respects the
+        // active SyncIlvl so melds laid down here will not overcap when the
+        // player enters synced content like FRU.
         foreach (var ms in allSlots)
         {
-            var cap = data.GetStatCap(ms.Item);
+            var cap = data.GetStatCap(ms.Item, state.SyncIlvl);
             string? best = null;
             var bestScore = double.NegativeInfinity;
             var bestGain = 0;

@@ -15,6 +15,12 @@ public class MainWindow : Window, IDisposable
     private readonly string[] _jobLabels;
     private readonly string[] _foodLabels;
 
+    // Content sync modes (label + ilvl). Built from data.SyncIlvls at startup
+    // so adding/removing modes is data-driven.
+    private readonly string[] _contentModeLabels;
+    private readonly int[] _contentModeIlvls;
+    private int _contentModeIdx = 0;
+
     public MainWindow(BisData data) : base("Bisme - FFXIV Meld Optimizer", ImGuiWindowFlags.None)
     {
         _data = data;
@@ -42,6 +48,21 @@ public class MainWindow : Window, IDisposable
             }));
             return $"{f.Name} ({stats})";
         })).ToArray();
+
+        // Snapshot the content-mode table into parallel arrays for ImGui.Combo.
+        // Falls back to a hard-coded "Unsynced" entry if the JSON is empty so
+        // the UI still has something to render.
+        if (_data.SyncIlvls.Count > 0)
+        {
+            _contentModeLabels = _data.SyncIlvls.Keys.ToArray();
+            _contentModeIlvls = _data.SyncIlvls.Values.ToArray();
+        }
+        else
+        {
+            _contentModeLabels = new[] { "Unsynced" };
+            _contentModeIlvls = new[] { 0 };
+        }
+        _state.SyncIlvl = _contentModeIlvls[_contentModeIdx];
     }
 
     public void Dispose() { }
@@ -99,6 +120,20 @@ public class MainWindow : Window, IDisposable
         {
             _state.Job = _jobLabels[jobIdx];
             ResetGear();
+        }
+
+        ImGui.SameLine();
+        ImGui.Text("Content:");
+        ImGui.SameLine();
+        ImGui.SetNextItemWidth(220);
+        if (ImGui.Combo("##content", ref _contentModeIdx, _contentModeLabels, _contentModeLabels.Length))
+        {
+            _state.SyncIlvl = _contentModeIlvls[_contentModeIdx];
+        }
+        if (_state.SyncIlvl > 0)
+        {
+            ImGui.SameLine();
+            ImGui.TextColored(new Vector4(1f, 0.6f, 0f, 1f), $"(sync i{_state.SyncIlvl})");
         }
 
         ImGui.SameLine();
@@ -337,6 +372,16 @@ public class MainWindow : Window, IDisposable
         ImGui.EndTable();
 
         ImGui.Spacing();
+        if (_state.SyncIlvl > 0)
+        {
+            ImGui.TextColored(new Vector4(1f, 0.6f, 0f, 1f),
+                $"Sync mode active: gear effective ilvl <= {_state.SyncIlvl}.");
+            ImGui.TextWrapped(
+                "Materia placement respects synced per-piece caps so nothing overcaps in this fight. " +
+                "Note: this panel currently shows raw (non-rescaled) gear stats -- the BiS target " +
+                "comparison is approximate when sync is active. Re-run Auto-Optimize after switching mode.");
+            ImGui.Spacing();
+        }
         ImGui.TextWrapped("Values = gear + materia + food (no +420 base). Optimizer respects per-piece caps and uses grade XII on base + 1st advanced slot, grade XI on later overmelds.");
     }
 
