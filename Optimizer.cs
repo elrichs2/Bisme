@@ -249,15 +249,33 @@ public static class Optimizer
         }
     }
 
+    /// <summary>
+    /// Fill every slot with the best item available for the active content mode.
+    /// In sync mode (state.SyncIlvl > 0) we pick the highest-ilvl item that is
+    /// at or below the sync target -- native-ilvl gear has no scaling losses and
+    /// its substat budget exactly matches the sync cap. With no sync we keep
+    /// the previous behaviour: highest ilvl wins.
+    /// </summary>
     public static void LoadBisGear(BisData data, State state)
     {
+        var sync = state.SyncIlvl;
         foreach (var slot in SlotsForJob(state.Job))
         {
-            var first = data.ItemsForJobSlot(state.Job, slot).FirstOrDefault();
-            if (first != null)
+            // Candidates come pre-sorted by Ilvl descending from ItemsForJobSlot.
+            var candidates = data.ItemsForJobSlot(state.Job, slot).ToList();
+            BisItem? pick = null;
+
+            if (sync > 0)
+                pick = candidates.FirstOrDefault(it => it.Ilvl <= sync);
+
+            // Fallbacks: no sync -> highest available; sync but no item at-or-
+            // below -> fall back to highest, which will be synced down at runtime.
+            pick ??= candidates.FirstOrDefault();
+
+            if (pick != null)
             {
-                state.Gear[slot].ItemId = first.Id;
-                var sc = first.Adv ? 5 : first.MSlots;
+                state.Gear[slot].ItemId = pick.Id;
+                var sc = pick.Adv ? 5 : pick.MSlots;
                 state.Gear[slot].Materia = Enumerable.Repeat<string?>(null, sc).ToList();
             }
         }
