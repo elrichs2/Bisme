@@ -27,7 +27,7 @@ public class MainWindow : Window, IDisposable
 
         SizeConstraints = new WindowSizeConstraints
         {
-            MinimumSize = new Vector2(820, 600),
+            MinimumSize = new Vector2(900, 600),
             MaximumSize = new Vector2(2400, 1600),
         };
 
@@ -75,12 +75,17 @@ public class MainWindow : Window, IDisposable
     {
         if (!_data.Jobs.Contains(jobAbbr)) return;
         _state.Job = jobAbbr;
+        // Reset variant index when job changes -- previous index may be out of
+        // range for the new job's curated list (if any).
+        _state.BisVariantIdx = 0;
         LoadEquippedGear();
     }
 
     public override void Draw()
     {
         DrawTopBar();
+        ImGui.Separator();
+        DrawVariantBar();
         ImGui.Separator();
         DrawFoodBar();
         ImGui.Separator();
@@ -115,6 +120,7 @@ public class MainWindow : Window, IDisposable
         if (ImGui.Combo("##job", ref jobIdx, _jobLabels, _jobLabels.Length))
         {
             _state.Job = _jobLabels[jobIdx];
+            _state.BisVariantIdx = 0;
             ResetGear();
         }
 
@@ -126,21 +132,14 @@ public class MainWindow : Window, IDisposable
         {
             _state.SyncIlvl = _contentModeIlvls[_contentModeIdx];
             _state.ContentMode = _contentModeLabels[_contentModeIdx];
-            // Auto-reload BiS gear: picks the curated set if one is embedded
-            // for (job, content), else falls back to the algorithmic scorer.
+            // Reset variant index: previous combo's pick may be out of range.
+            _state.BisVariantIdx = 0;
             Optimizer.LoadBisGear(_data, _state);
         }
         if (_state.SyncIlvl > 0)
         {
             ImGui.SameLine();
             ImGui.TextColored(new Vector4(1f, 0.6f, 0f, 1f), $"(sync i{_state.SyncIlvl})");
-        }
-        // Indicator: curated theorycraft data is in use for this combo.
-        var curated = _data.GetCuratedGearset(_state.Job, _state.ContentMode);
-        if (curated != null)
-        {
-            ImGui.SameLine();
-            ImGui.TextColored(new Vector4(0.3f, 0.85f, 0.3f, 1f), $"[curated: {curated.Name}]");
         }
 
         ImGui.SameLine();
@@ -170,6 +169,32 @@ public class MainWindow : Window, IDisposable
             catch (Exception e) { Plugin.Chat.PrintError($"[Bisme] {e.Message}"); }
         }
         ImGui.PopStyleColor();
+    }
+
+    private void DrawVariantBar()
+    {
+        var variants = _data.GetCuratedVariants(_state.Job, _state.ContentMode);
+        if (variants.Count == 0)
+        {
+            ImGui.TextDisabled($"No curated BiS for {_state.Job} / {_state.ContentMode}. Using algorithmic gear picker.");
+            return;
+        }
+
+        ImGui.Text("BiS Variant:");
+        ImGui.SameLine();
+        ImGui.SetNextItemWidth(420);
+        var labels = variants.Select(v => v.Name).ToArray();
+        if (_state.BisVariantIdx >= labels.Length) _state.BisVariantIdx = 0;
+        var idx = _state.BisVariantIdx;
+        if (ImGui.Combo("##bisvariant", ref idx, labels, labels.Length))
+        {
+            _state.BisVariantIdx = idx;
+            Optimizer.LoadBisGear(_data, _state);
+        }
+        // Sheet attribution + count
+        var sheetName = variants[Math.Min(_state.BisVariantIdx, variants.Count - 1)].Source;
+        ImGui.SameLine();
+        ImGui.TextDisabled($"({variants.Count} variants from Balance staticbis)");
     }
 
     private void DrawFoodBar()
@@ -378,8 +403,8 @@ public class MainWindow : Window, IDisposable
                 $"Sync mode active: gear effective ilvl <= {_state.SyncIlvl}.");
             ImGui.TextWrapped(
                 "Materia placement respects synced per-piece caps so nothing overcaps in this fight. " +
-                "Note: this panel shows raw (non-rescaled) gear stats -- BiS target comparison is " +
-                "approximate when sync is active.");
+                "BiS target comparison is approximate when sync is active because the panel shows " +
+                "raw (non-rescaled) gear stats.");
             ImGui.Spacing();
         }
         ImGui.TextWrapped("Values = gear + materia + food (no +420 base). Optimizer respects per-piece caps and uses grade XII on base + 1st advanced slot, grade XI on later overmelds.");

@@ -39,11 +39,6 @@ public class MateriaGrade
     [JsonPropertyName("value")] public int Value { get; set; }
 }
 
-/// <summary>
-/// One curated BiS gearset for a (job, content) combo, as imported from a
-/// xivgear shortlink. Items keyed by slot, melds are stat codes ("CRT", "DH"...)
-/// in physical slot order, so we know exactly which materia goes where.
-/// </summary>
 public class BisGearpiece
 {
     [JsonPropertyName("id")]    public int Id { get; set; }
@@ -69,10 +64,10 @@ public class BisData
     [JsonPropertyName("slotRatios")]      public Dictionary<string, double> SlotRatios { get; set; } = new();
     [JsonPropertyName("materiaGrades")]   public Dictionary<string, Dictionary<string, MateriaGrade>> MateriaGrades { get; set; } = new();
     [JsonPropertyName("syncIlvls")]       public Dictionary<string, int> SyncIlvls { get; set; } = new();
-    // Curated BiS gearsets keyed by [job][contentLabel]. When present, Bisme uses
-    // these item ids and meld patterns verbatim (community theorycraft) instead
-    // of relying on the algorithmic substat scoring.
-    [JsonPropertyName("bisGearsets")]     public Dictionary<string, Dictionary<string, BisGearset>> BisGearsets { get; set; } = new();
+    // Curated BiS gearsets keyed by [job][contentLabel]. Each combo holds a
+    // LIST of variants (e.g. different GCD speeds or weapon choices) so the
+    // user can pick the build that matches their stat preference.
+    [JsonPropertyName("bisGearsets")]     public Dictionary<string, Dictionary<string, List<BisGearset>>> BisGearsets { get; set; } = new();
 
     public Dictionary<int, string> MateriaIdToStat { get; private set; } = new();
 
@@ -128,14 +123,26 @@ public class BisData
         MateriaGrades.TryGetValue(grade, out var g) && g.TryGetValue(stat, out var mg) ? mg.Id : 0;
 
     /// <summary>
-    /// Look up a curated gearset for (job, contentLabel). Returns null if no
-    /// theorycrafter-provided set is embedded for this combo, in which case
-    /// callers fall back to the algorithmic gear picker.
+    /// All curated variants for (job, contentLabel). Returns an empty list if
+    /// nothing is curated -- the caller should then fall back to the algo.
     /// </summary>
-    public BisGearset? GetCuratedGearset(string job, string contentLabel)
+    public List<BisGearset> GetCuratedVariants(string job, string contentLabel)
     {
-        if (string.IsNullOrEmpty(contentLabel)) return null;
-        if (!BisGearsets.TryGetValue(job, out var perJob)) return null;
-        return perJob.TryGetValue(contentLabel, out var gs) ? gs : null;
+        if (string.IsNullOrEmpty(contentLabel)) return new List<BisGearset>();
+        if (!BisGearsets.TryGetValue(job, out var perJob)) return new List<BisGearset>();
+        return perJob.TryGetValue(contentLabel, out var list) ? list : new List<BisGearset>();
+    }
+
+    /// <summary>
+    /// Pick a single variant by index (clamped to valid range). Returns null
+    /// if the combo has no curated data.
+    /// </summary>
+    public BisGearset? GetCuratedGearset(string job, string contentLabel, int variantIdx)
+    {
+        var list = GetCuratedVariants(job, contentLabel);
+        if (list.Count == 0) return null;
+        if (variantIdx < 0) variantIdx = 0;
+        if (variantIdx >= list.Count) variantIdx = list.Count - 1;
+        return list[variantIdx];
     }
 }

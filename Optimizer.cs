@@ -51,11 +51,11 @@ public static class Optimizer
         public string Job { get; set; } = "WAR";
         public Dictionary<string, GearSlot> Gear { get; set; } = new();
         public int? FoodId { get; set; }
-        // Sync ilvl numeric value (0 = no sync). Used by the per-piece cap math.
         public int SyncIlvl { get; set; } = 0;
-        // Human-readable content label (matches a key in data.SyncIlvls). Used
-        // to look up curated BiS gearsets in data.BisGearsets.
         public string ContentMode { get; set; } = "";
+        // Index into the curated variants list for the active (job, content).
+        // Reset to 0 whenever the combo changes.
+        public int BisVariantIdx { get; set; } = 0;
 
         public static State Empty()
         {
@@ -237,19 +237,15 @@ public static class Optimizer
     }
 
     /// <summary>
-    /// Load the best-in-slot gearset for the current job and content mode.
-    /// Preference order:
-    ///   1. Curated gearset embedded in data.bisGearsets (theorycrafted, exact)
-    ///   2. Algorithmic effective-substat scoring (best guess for content not yet curated)
+    /// Load the BiS gearset for the current (Job, ContentMode, BisVariantIdx).
+    /// Curated theorycraft data takes precedence; the algo fallback runs only
+    /// if no curated set exists for this combo.
     /// </summary>
     public static void LoadBisGear(BisData data, State state)
     {
-        // Try curated first.
-        var curated = data.GetCuratedGearset(state.Job, state.ContentMode);
+        var curated = data.GetCuratedGearset(state.Job, state.ContentMode, state.BisVariantIdx);
         if (curated != null)
         {
-            // Reset every slot for this job so the previous mode's gear does
-            // not leak into the new layout.
             foreach (var slot in Slots)
                 state.Gear[slot] = new GearSlot();
 
@@ -261,8 +257,6 @@ public static class Optimizer
 
                 var gs = new GearSlot { ItemId = piece.Id };
                 var sc = it.Adv ? 5 : it.MSlots;
-                // Initialise the materia list with nulls, then overwrite from
-                // the curated melds list (any extra/missing entries are ignored).
                 gs.Materia = Enumerable.Repeat<string?>(null, sc).ToList();
                 for (var i = 0; i < piece.Melds.Count && i < sc; i++)
                     gs.Materia[i] = piece.Melds[i];
@@ -274,15 +268,9 @@ public static class Optimizer
             return;
         }
 
-        // No curated set: fall back to the algorithmic scorer.
         LoadBisGearAlgo(data, state);
     }
 
-    /// <summary>
-    /// Algorithmic gear picker used when no curated gearset exists for this
-    /// (job, content). Scores items by relevant-substat budget post-sync plus
-    /// an approximate meld budget, and picks the highest score per slot.
-    /// </summary>
     private static void LoadBisGearAlgo(BisData data, State state)
     {
         var relevant = RelevantStats(data, state.Job);
