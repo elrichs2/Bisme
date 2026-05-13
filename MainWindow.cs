@@ -129,6 +129,9 @@ public class MainWindow : Window, IDisposable
         if (ImGui.Combo("##content", ref _contentModeIdx, _contentModeLabels, _contentModeLabels.Length))
         {
             _state.SyncIlvl = _contentModeIlvls[_contentModeIdx];
+            // Auto-reload BiS gear at the right ilvl tier so the user does not
+            // have to click Load BiS Gear separately every time the mode changes.
+            Optimizer.LoadBisGear(_data, _state);
         }
         if (_state.SyncIlvl > 0)
         {
